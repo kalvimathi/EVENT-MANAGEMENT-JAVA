@@ -1,0 +1,246 @@
+package miniproject;
+
+import javafx.application.Application;
+import javafx.collections.FXCollections;
+import javafx.collections.ObservableList;
+import javafx.geometry.Insets;
+import javafx.scene.Scene;
+import javafx.scene.control.*;
+import javafx.scene.control.cell.PropertyValueFactory;
+import javafx.scene.layout.GridPane;
+import javafx.scene.layout.VBox;
+import javafx.stage.Modality;
+import javafx.stage.Stage;
+
+import java.sql.*;
+
+public class EventManagementApp extends Application {
+    private static final String URL = "jdbc:mysql://localhost:3306/EventManagement";
+    private static final String USER = "root";
+    private static final String PASSWORD = "26062006_ka08";
+
+    public static void main(String[] args) {
+        launch(args);
+    }
+
+    @Override
+    public void start(Stage primaryStage) {
+        primaryStage.setTitle("Event Management System");
+
+        // Set up UI components
+        Label nameLabel = new Label("Event Name:");
+        TextField nameField = new TextField();
+        nameField.setPrefWidth(200);
+
+        Label dateLabel = new Label("Event Date:");
+        DatePicker datePicker = new DatePicker();
+        datePicker.setPrefWidth(200);
+
+        Label locationLabel = new Label("Location:");
+        TextField locationField = new TextField();
+        locationField.setPrefWidth(200);
+
+        Label capacityLabel = new Label("Capacity:");
+        TextField capacityField = new TextField();
+        capacityField.setPrefWidth(200);
+
+        Label descriptionLabel = new Label("Description:");
+        TextArea descriptionArea = new TextArea();
+        descriptionArea.setPrefRowCount(3);
+        descriptionArea.setPrefWidth(200);
+
+        Button addButton = new Button("Add Event");
+        Button showButton = new Button("Show All Events");
+
+        // Layout configuration
+        GridPane grid = new GridPane();
+        grid.setPadding(new Insets(10));
+        grid.setVgap(5);
+        grid.setHgap(5);
+        grid.add(nameLabel, 0, 0);
+        grid.add(nameField, 1, 0);
+        grid.add(dateLabel, 0, 1);
+        grid.add(datePicker, 1, 1);
+        grid.add(locationLabel, 0, 2);
+        grid.add(locationField, 1, 2);
+        grid.add(capacityLabel, 0, 3);
+        grid.add(capacityField, 1, 3);
+        grid.add(descriptionLabel, 0, 4);
+        grid.add(descriptionArea, 1, 4);
+        grid.add(addButton, 1, 5);
+        grid.add(showButton, 1, 6);
+
+        // Button actions
+        addButton.setOnAction(e -> addEvent(
+                nameField.getText(),
+                datePicker.getValue() != null ? datePicker.getValue().toString() : "",
+                locationField.getText(),
+                capacityField.getText(),
+                descriptionArea.getText()
+        ));
+
+        showButton.setOnAction(e -> showAllEventsWindow());
+
+        // Set up the scene and show the stage
+        Scene scene = new Scene(grid, 450, 350);
+        primaryStage.setScene(scene);
+        primaryStage.show();
+    }
+
+    private void addEvent(String name, String date, String location, String capacity, String description) {
+        if (isDuplicateEvent(name, date, location)) {
+            Alert alert = new Alert(Alert.AlertType.WARNING);
+            alert.setTitle("Duplicate Event");
+            alert.setHeaderText(null);
+            alert.setContentText("An event with the same name, date, and location already exists.");
+            alert.showAndWait();
+            return;
+        }
+
+        String sql = "INSERT INTO events (event_name, event_date, location, capacity, description) VALUES (?, ?, ?, ?, ?)";
+        try (Connection conn = DriverManager.getConnection(URL, USER, PASSWORD);
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, name);
+            if (!date.isEmpty()) {
+                stmt.setDate(2, Date.valueOf(date));
+            } else {
+                stmt.setNull(2, java.sql.Types.DATE);
+            }
+            stmt.setString(3, location);
+            stmt.setInt(4, Integer.parseInt(capacity));
+            stmt.setString(5, description);
+            stmt.executeUpdate();
+            System.out.println("customer added successfully!");
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private boolean isDuplicateEvent(String name, String date, String location) {
+        String sql = "SELECT COUNT(*) FROM events WHERE event_name = ? AND event_date = ? AND location = ?";
+        try (Connection conn = DriverManager.getConnection(URL, USER, PASSWORD);
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, name);
+            stmt.setDate(2, Date.valueOf(date));
+            stmt.setString(3, location);
+            ResultSet rs = stmt.executeQuery();
+            if (rs.next()) {
+                return rs.getInt(1) > 0;
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+        return false;
+    }
+
+    private void showAllEventsWindow() {
+        Stage tableStage = new Stage();
+        tableStage.setTitle("All Events");
+
+        TableView<Event> tableView = new TableView<>();
+
+        TableColumn<Event, Integer> idColumn = new TableColumn<>("Event ID");
+        idColumn.setCellValueFactory(new PropertyValueFactory<>("id"));
+
+        TableColumn<Event, String> nameColumn = new TableColumn<>("Name");
+        nameColumn.setCellValueFactory(new PropertyValueFactory<>("name"));
+
+        TableColumn<Event, String> dateColumn = new TableColumn<>("Date");
+        dateColumn.setCellValueFactory(new PropertyValueFactory<>("date"));
+
+        TableColumn<Event, String> locationColumn = new TableColumn<>("Location");
+        locationColumn.setCellValueFactory(new PropertyValueFactory<>("location"));
+
+        TableColumn<Event, Integer> capacityColumn = new TableColumn<>("Capacity");
+        capacityColumn.setCellValueFactory(new PropertyValueFactory<>("capacity"));
+
+        TableColumn<Event, String> descriptionColumn = new TableColumn<>("Description");
+        descriptionColumn.setCellValueFactory(new PropertyValueFactory<>("description"));
+
+        tableView.getColumns().addAll(idColumn, nameColumn, dateColumn, locationColumn, capacityColumn, descriptionColumn);
+        tableView.setItems(getAllEvents());
+
+        // Delete button
+        Button deleteButton = new Button("Delete Selected Event");
+        deleteButton.setOnAction(e -> {
+            Event selectedEvent = tableView.getSelectionModel().getSelectedItem();
+            if (selectedEvent != null) {
+                deleteEvent(selectedEvent.getId());
+                tableView.setItems(getAllEvents()); // Refresh the table
+            } else {
+                Alert alert = new Alert(Alert.AlertType.WARNING);
+                alert.setTitle("No Selection");
+                alert.setHeaderText(null);
+                alert.setContentText("Please select an event to delete.");
+                alert.showAndWait();
+            }
+        });
+
+        VBox vbox = new VBox(10, tableView, deleteButton);
+        vbox.setPadding(new Insets(10));
+        Scene scene = new Scene(vbox, 600, 400);
+
+        tableStage.initModality(Modality.APPLICATION_MODAL);
+        tableStage.setScene(scene);
+        tableStage.show();
+    }
+
+    private void deleteEvent(int eventId) {
+        String sql = "DELETE FROM events WHERE event_id = ?";
+        try (Connection conn = DriverManager.getConnection(URL, USER, PASSWORD);
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setInt(1, eventId);
+            stmt.executeUpdate();
+            System.out.println("Event deleted successfully!");
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private ObservableList<Event> getAllEvents() {
+        ObservableList<Event> eventsList = FXCollections.observableArrayList();
+        String sql = "SELECT * FROM events";
+        try (Connection conn = DriverManager.getConnection(URL, USER, PASSWORD);
+             PreparedStatement stmt = conn.prepareStatement(sql);
+             ResultSet rs = stmt.executeQuery()) {
+            while (rs.next()) {
+                eventsList.add(new Event(
+                        rs.getInt("event_id"),
+                        rs.getString("event_name"),
+                        rs.getDate("event_date") != null ? rs.getDate("event_date").toString() : "",
+                        rs.getString("location"),
+                        rs.getInt("capacity"),
+                        rs.getString("description")
+                ));
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+        return eventsList;
+    }
+
+    public static class Event {
+        private final int id;
+        private final String name;
+        private final String date;
+        private final String location;
+        private final int capacity;
+        private final String description;
+
+        public Event(int id, String name, String date, String location, int capacity, String description) {
+            this.id = id;
+            this.name = name;
+            this.date = date;
+            this.location = location;
+            this.capacity = capacity;
+            this.description = description;
+        }
+
+        public int getId() { return id; }
+        public String getName() { return name; }
+        public String getDate() { return date; }
+        public String getLocation() { return location; }
+        public int getCapacity() { return capacity; }
+        public String getDescription() { return description; }
+    }
+}
